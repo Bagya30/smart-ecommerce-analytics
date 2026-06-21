@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}SQL Insights - Smart E-Commerce Analytics{% endblock %}
+{% block content %}
+
+<style>
+    .page-head { margin-bottom: 22px; }
+    .page-head h2 { font-size: 20px; font-weight: 600; color: var(--text-dark); }
+    .page-head p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .query-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+    .query-head { padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+    .query-head-left { display: flex; align-items: center; gap: 14px; }
+    .query-num { width: 32px; height: 32px; border-radius: 8px; background: #e6f1fb; color: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+    .query-title { font-size: 14.5px; font-weight: 600; color: var(--text-dark); }
+    .query-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .query-badges { display: flex; gap: 6px; margin-top: 6px; }
+    .badge { font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 6px; background: #f4f6fa; color: var(--text-muted); }
+    .run-btn { background: #2563eb; color: white; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .run-btn:hover { background: #1d4ed8; }
+    .run-btn:disabled { background: #94a3b8; cursor: wait; }
+
+    .query-sql { background: #0b1320; color: #b5d4f4; padding: 16px 22px; font-family: 'Consolas', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; display: none; }
+    .query-sql.show { display: block; }
+
+    .result-area { padding: 16px 22px; display: none; border-top: 1px solid var(--border); }
+    .result-area.show { display: block; }
+    .result-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .result-table th { background: #f4f6fa; padding: 8px 12px; text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
+    .result-table td { padding: 8px 12px; border-bottom: 1px solid #f0f2f6; color: var(--text-dark); }
+    .result-meta { font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+</style>
+
+<div class="page-head">
+    <h2>SQL insights</h2>
+    <p>5 advanced SQL queries using CTEs and window functions, executed live against PostgreSQL via Module A's query engine</p>
+</div>
+
+<div id="queriesContainer"></div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const queryDefs = [
+    {
+        id: 1,
+        title: "Top 10 sellers by revenue",
+        desc: "Which sellers are generating the most revenue?",
+        badges: ["RANK()", "CTE"],
+        sql: `WITH seller_revenue AS (
+    SELECT seller_id, SUM(price) AS total_revenue
+    FROM order_items
+    GROUP BY seller_id
+)
+SELECT seller_id, total_revenue,
+       RANK() OVER (ORDER BY total_revenue DESC) AS revenue_rank
+FROM seller_revenue
+ORDER BY total_revenue DESC LIMIT 10;`,
+        endpoint: "/api/run_query/top_sellers"
+    },
+    {
+        id: 2,
+        title: "Month-over-month order growth",
+        desc: "How did order volume grow compared to the previous month?",
+        badges: ["LAG()", "CTE"],
+        sql: `WITH monthly_orders AS (
+    SELECT TO_CHAR(order_purchase_timestamp, 'YYYY-MM') AS month,
+           COUNT(order_id) AS total_orders
+    FROM orders GROUP BY 1
+)
+SELECT month, total_orders,
+       LAG(total_orders) OVER (ORDER BY month) AS prev_month
+FROM monthly_orders ORDER BY month;`,
+        endpoint: "/api/run_query/monthly_growth"
+    },
+    {
+        id: 3,
+        title: "Average delivery delay by state",
+        desc: "Which states have the best or worst delivery performance?",
+        badges: ["CTE", "CASE WHEN"],
+        sql: `WITH delivery_data AS (
+    SELECT c.customer_state,
+           EXTRACT(DAY FROM (order_delivered_customer_date - order_estimated_delivery_date)) AS delay_days
+    FROM orders o JOIN customers c ON o.customer_id = c.customer_id
+    WHERE order_delivered_customer_date IS NOT NULL
+)
+SELECT customer_state, ROUND(AVG(delay_days),2) AS avg_delay
+FROM delivery_data GROUP BY customer_state
+ORDER BY avg_delay DESC LIMIT 10;`,
+        endpoint: "/api/run_query/delivery_delay"
+    },
+    {
+        id: 4,
+        title: "Customer repeat purchase rate",
+        desc: "How many customers are one-time vs repeat buyers?",
+        badges: ["CTE", "COUNT"],
+        sql: `WITH customer_orders AS (
+    SELECT customer_unique_id, COUNT(o.order_id) AS order_count
+    FROM customers c JOIN orders o ON c.customer_id = o.customer_id
+    GROUP BY customer_unique_id
+)
+SELECT
+    CASE WHEN order_count = 1 THEN 'One-Time Buyer'
+         WHEN order_count = 2 THEN 'Repeat Buyer (2x)'
+         ELSE 'Loyal Buyer (3x+)' END AS buyer_type,
+    COUNT(*) AS customer_count
+FROM customer_orders GROUP BY buyer_type;`,
+        endpoint: "/api/run_query/repeat_rate"
+    },
+    {
+        id: 5,
+        title: "Categories with highest cancellation rate",
+        desc: "Which product categories get cancelled most often?",
+        badges: ["LEAD()", "CTE"],
+        sql: `WITH category_orders AS (
+    SELECT p.product_category_name,
+           COUNT(o.order_id) AS total_orders,
+           SUM(CASE WHEN o.order_status='canceled' THEN 1 ELSE 0 END) AS cancelled
+    FROM orders o
+    JOIN order_items oi ON o.order_id = oi.order_id
+    JOIN products p ON oi.product_id = p.product_id
+    GROUP BY p.product_category_name
+    HAVING COUNT(o.order_id) >= 50
+)
+SELECT product_category_name, total_orders, cancelled,
+       ROUND(cancelled * 100.0 / total_orders, 2) AS cancellation_rate_pct
+FROM category_orders
+ORDER BY cancellation_rate_pct DESC LIMIT 10;`,
+        endpoint: "/api/run_query/cancellation_rate"
+    }
+];
+
+const container = document.getElementById('queriesContainer');
+
+queryDefs.forEach(q => {
+    const card = document.createElement('div');
+    card.className = 'query-card';
+    card.innerHTML = `
+        <div class="query-head" onclick="toggleSql(${q.id})">
+            <div class="query-head-left">
+                <div class="query-num">Q${q.id}</div>
+                <div>
+                    <div class="query-title">${q.title}</div>
+                    <div class="query-desc">${q.desc}</div>
+                    <div class="query-badges">${q.badges.map(b => `<span class="badge">${b}</span>`).join('')}</div>
+                </div>
+            </div>
+            <button class="run-btn" id="runBtn${q.id}" onclick="event.stopPropagation(); runQuery(${q.id}, '${q.endpoint}')">
+                <i class="ti ti-player-play"></i> Run query
+            </button>
+        </div>
+        <div class="query-sql" id="sql${q.id}">${q.sql}</div>
+        <div class="result-area" id="result${q.id}"></div>
+    `;
+    container.appendChild(card);
+});
+
+function toggleSql(id) {
+    document.getElementById('sql' + id).classList.toggle('show');
+}
+
+function runQuery(id, endpoint) {
+    const btn = document.getElementById('runBtn' + id);
+    const resultDiv = document.getElementById('result' + id);
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> Running...';
+
+    fetch(endpoint)
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ti ti-player-play"></i> Run again';
+
+            if (!data.rows || data.rows.length === 0) {
+                resultDiv.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No results returned.</p>';
+                resultDiv.classList.add('show');
+                return;
+            }
+
+            const cols = Object.keys(data.rows[0]);
+            let html = `<div class="result-meta"><i class="ti ti-table"></i> ${data.rows.length} rows returned in ${data.exec_time}ms</div>`;
+            html += '<table class="result-table"><thead><tr>';
+            cols.forEach(c => html += `<th>${c}</th>`);
+            html += '</tr></thead><tbody>';
+            data.rows.forEach(row => {
+                html += '<tr>';
+                cols.forEach(c => {
+                    const val = row[c];
+                    const display = (val === null || val === undefined) ? '-' : val;
+                    html += `<td>${display}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            resultDiv.innerHTML = html;
+            resultDiv.classList.add('show');
+            document.getElementById('sql' + id).classList.add('show');
+        })
+        .catch((err) => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ti ti-player-play"></i> Run again';
+            console.error('Query error details:', err);
+            resultDiv.innerHTML = '<p style="color:#e24b4a;font-size:13px;">Error: ' + err.message + '</p>';
+            resultDiv.classList.add('show');
+        });
+}
+</script>
+{% endblock %}

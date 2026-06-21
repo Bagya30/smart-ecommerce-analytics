@@ -1,0 +1,33 @@
+# ============================================================
+# FILE: requirements.txt
+# PURPOSE: All Python libraries required for this project
+# USAGE: pip install -r requirements.txt
+# ============================================================
+
+# Core data processing
+pandas==2.2.3
+numpy==2.1.3
+
+# Database connectivity
+# psycopg2-binary: PostgreSQL adapter for Python (Unit II)
+# sqlalchemy: Python SQL toolkit and ORM (Unit II)
+psycopg2-binary==2.9.10
+SQLAlchemy==2.0.36
+
+# Machine learning
+# scikit-learn: ML algorithms including Random Forest, KMeans (Unit IV)
+scikit-learn==1.5.2
+
+# Visualization
+# matplotlib: Core plotting library (Unit V)
+# seaborn: Statistical visualization built on matplotlib (Unit V)
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Dashboard
+# streamlit: Interactive web dashboard framework (Unit VI)
+streamlit==1.40.0
+
+# Utilities
+# tabulate: Pretty print tables in terminal (sql_queries.py)
+tabulate==0.9.0

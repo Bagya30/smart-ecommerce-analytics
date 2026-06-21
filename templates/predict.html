@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Predict Revenue - Smart E-Commerce Analytics{% endblock %}
+{% block content %}
+
+<style>
+    .page-head { margin-bottom: 22px; }
+    .page-head h2 { font-size: 20px; font-weight: 600; color: var(--text-dark); }
+    .page-head p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .predict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-dark); margin-bottom: 6px; }
+    .form-group .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .form-group input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 13.5px; outline: none; }
+    .form-group input:focus { border-color: var(--blue); }
+
+    .predict-btn { background: var(--purple); color: white; border: none; padding: 12px 22px; border-radius: 10px; cursor: pointer; font-size: 13.5px; font-weight: 600; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
+    .predict-btn:hover { background: #6d28d9; }
+    .predict-btn:disabled { background: #94a3b8; cursor: wait; }
+
+    .result-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 280px; }
+    .result-panel.empty i { font-size: 48px; color: #cbd5e1; margin-bottom: 14px; }
+    .result-panel.empty p { color: var(--text-muted); font-size: 13.5px; max-width: 260px; }
+
+    .result-value { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+    .result-amount { font-size: 38px; font-weight: 700; color: var(--purple); margin-bottom: 14px; }
+    .result-metrics { display: flex; gap: 20px; margin-top: 10px; }
+    .result-metric { text-align: center; }
+    .result-metric .num { font-size: 16px; font-weight: 600; color: var(--text-dark); }
+    .result-metric .lbl { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+
+    .model-info { background: #f4f6fa; border-radius: 10px; padding: 14px 16px; margin-top: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+    .model-info b { color: var(--text-dark); }
+</style>
+
+<div class="page-head">
+    <h2>Predict weekly revenue</h2>
+    <p>Enter feature values to get a live prediction from the trained Random Forest model (R² = 0.94)</p>
+</div>
+
+<div class="predict-grid">
+    <div class="panel">
+        <div class="panel-head">
+            <h3>Input features</h3>
+            <div class="sub">Module B's Random Forest Regressor</div>
+        </div>
+
+        <div style="margin-top:18px;">
+            <div class="form-group">
+                <label>Order count for the week</label>
+                <input type="number" id="order_count" value="1200" min="1">
+                <div class="hint">Number of orders placed that week</div>
+            </div>
+            <div class="form-group">
+                <label>Average price (R$)</label>
+                <input type="number" id="avg_price" value="75" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Average freight value (R$)</label>
+                <input type="number" id="avg_freight" value="15" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Average payment value (R$)</label>
+                <input type="number" id="avg_payment_value" value="150" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Average installments</label>
+                <input type="number" id="avg_installments" value="3" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>Average review score</label>
+                <input type="number" id="avg_review_score" value="4.1" step="0.01" min="1" max="5">
+            </div>
+            <div class="form-group">
+                <label>Average delivery days</label>
+                <input type="number" id="avg_delivery_days" value="12" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>Average delivery delay (days)</label>
+                <input type="number" id="avg_delivery_delay" value="-10" step="0.1">
+                <div class="hint">Negative means delivered early</div>
+            </div>
+
+            <button class="predict-btn" id="predictBtn" onclick="runPrediction()">
+                <i class="ti ti-brain"></i> Predict revenue
+            </button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-head">
+            <h3>Prediction result</h3>
+            <div class="sub">Live output from the trained model</div>
+        </div>
+
+        <div id="resultPanel" class="result-panel empty">
+            <i class="ti ti-chart-line" aria-hidden="true"></i>
+            <p>Fill in the feature values and click "Predict revenue" to see the model's output here.</p>
+        </div>
+
+        <div class="model-info">
+            <b>Model:</b> Random Forest Regressor, 100 trees, max depth 5<br>
+            <b>Training data:</b> 90 weekly aggregated data points (2016-2018)<br>
+            <b>Performance:</b> R² = 0.94, MAE = R$ 5,877.82, RMSE = R$ 7,529.63<br>
+            <b>Most important feature:</b> order_count (94.7% importance)
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function runPrediction() {
+    const btn = document.getElementById('predictBtn');
+    const resultPanel = document.getElementById('resultPanel');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> Predicting...';
+
+    const payload = {
+        order_count: parseFloat(document.getElementById('order_count').value),
+        avg_price: parseFloat(document.getElementById('avg_price').value),
+        avg_freight: parseFloat(document.getElementById('avg_freight').value),
+        avg_payment_value: parseFloat(document.getElementById('avg_payment_value').value),
+        avg_installments: parseFloat(document.getElementById('avg_installments').value),
+        avg_review_score: parseFloat(document.getElementById('avg_review_score').value),
+        avg_delivery_days: parseFloat(document.getElementById('avg_delivery_days').value),
+        avg_delivery_delay: parseFloat(document.getElementById('avg_delivery_delay').value)
+    };
+
+    fetch('/api/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-brain"></i> Predict revenue';
+
+        resultPanel.classList.remove('empty');
+        const predFormatted = data.prediction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const maeFormatted = data.mae.toLocaleString('en-US');
+        const r2Formatted = (data.r2 * 100).toFixed(0);
+        resultPanel.innerHTML =
+            '<div class="result-value">Predicted weekly revenue</div>' +
+            '<div class="result-amount">R$ ' + predFormatted + '</div>' +
+            '<div class="result-metrics">' +
+                '<div class="result-metric"><div class="num">&plusmn;R$ ' + maeFormatted + '</div><div class="lbl">Typical error (MAE)</div></div>' +
+                '<div class="result-metric"><div class="num">' + r2Formatted + '%</div><div class="lbl">Model confidence (R&sup2;)</div></div>' +
+            '</div>';
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-brain"></i> Predict revenue';
+        resultPanel.classList.remove('empty');
+        resultPanel.innerHTML = '<p style="color:#e24b4a;font-size:13px;">Error getting prediction. Check the Flask console.</p>';
+    });
+}
+</script>
+{% endblock %}
